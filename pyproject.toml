@@ -1,0 +1,62 @@
+[build-system]
+requires = ["setuptools>=69.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sentrywatch"
+version = "0.1.0"
+description = "SentryWatch SecOps Suite - Asynchronous scanning engine, streaming parser, and telemetry backend."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "SentryWatch Team" }]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Information Technology",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Security",
+    "Typing :: Typed",
+]
+dependencies = [
+    "pydantic>=2.7.0",
+    "pydantic-settings>=2.2.0",
+    "typing-extensions>=4.10.0",
+]
+
+[project.optional-dependencies]
+api = [
+    "fastapi>=0.111.0",
+    "uvicorn[standard]>=0.30.0",
+    "slowapi>=0.1.9",
+    "redis>=5.0.4",
+]
+cli = [
+    "typer>=0.12.3",
+    "rich>=13.7.1",
+]
+dev = [
+    "pytest>=8.2.0",
+    "pytest-asyncio>=0.23.6",
+    "httpx>=0.27.0",
+    "ruff>=0.4.4",
+    "mypy>=1.10.0",
+]
+
+[project.scripts]
+sentrywatch = "cli.cli:run"
+
+[tool.setuptools.packages.find]
+include = ["core*", "api*", "cli*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
