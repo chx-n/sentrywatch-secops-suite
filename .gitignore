@@ -1,0 +1,70 @@
+# ─── Python ───────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+.eggs/
+.venv/
+venv/
+env/
+
+# Python test & lint caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# ─── Node / Frontend ──────────────────────────────────────────────────────────
+node_modules/
+dist/
+.turbo/
+.next/
+.nuxt/
+.cache/
+.parcel-cache/
+
+# ─── Environment & Secrets ────────────────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+*.p12
+*.pfx
+secrets.json
+
+# ─── Tauri Desktop Build Artifacts ───────────────────────────────────────────
+src-tauri/target/
+src-tauri/gen/
+
+# ─── OS & Editor Noise ────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# ─── AI / IDE Agent Files ─────────────────────────────────────────────────────
+# Agent runtime configs — local-only, not project source
+.agents/
+.impeccable/
+CLAUDE.md
+.cursorrules
+.gemini/
+
+# ─── Build / Generated Output ─────────────────────────────────────────────────
+build/
+*.wasm.map
+
+# ─── Logs ─────────────────────────────────────────────────────────────────────
+*.log
+logs/
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*

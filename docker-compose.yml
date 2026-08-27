@@ -1,0 +1,41 @@
+name: sentrywatch
+
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    image: sentrywatch/api:latest
+    restart: unless-stopped
+    environment:
+      SENTRYWATCH_API_KEYS: '${SENTRYWATCH_API_KEYS:-["dev-key-change-me"]}'
+      SENTRYWATCH_ALLOW_PRIVATE_NETWORKS: "${SENTRYWATCH_ALLOW_PRIVATE_NETWORKS:-false}"
+      SENTRYWATCH_REDIS_URL: redis://redis:6379/0
+      SENTRYWATCH_ALLOWED_ORIGINS: >-
+        ["http://localhost:8080", "http://127.0.0.1:8080"]
+    ports:
+      - "8000:8000"
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.frontend
+    image: sentrywatch/web:latest
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    depends_on:
+      - api
