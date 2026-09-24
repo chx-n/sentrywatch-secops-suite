@@ -51,6 +51,31 @@ docker compose up --build
 
 Frontend: set `VITE_SENTRYWATCH_API_KEY` at build/dev time.
 
+## Production Hardening
+
+**TLS Termination Required** — The API serves HTTP. In production, deploy behind a TLS-terminating reverse proxy:
+- **nginx** / **Traefik** / **Caddy** / **Cloudflare Tunnel**
+- Set `SENTRYWATCH_FORCE_HTTPS=true` to reject non-HTTPS requests
+- Configure `SENTRYWATCH_ALLOWED_ORIGINS` to your dashboard domain
+
+**WebSocket Auth** — Telemetry sockets require `Authorization: Bearer <key>` header. Query-parameter tokens are rejected.
+
+**API Keys** — Keys are stored as bcrypt hashes. Generate with:
+```bash
+python3 -c "import bcrypt; print(bcrypt.hashpw(b'your-secret', bcrypt.gensalt()).decode())"
+```
+Set `SENTRYWATCH_API_KEYS` to comma-separated hashes.
+
+**Rate Limits** — Default: 60 req/min (HTTP), 30 conn/min (WS). Override via `SENTRYWATCH_RATE_LIMIT`, `SENTRYWATCH_WS_RATE_LIMIT`.
+
+**Distributed Concurrency** — For multi-replica deployments, set `SENTRYWATCH_REDIS_URL` to enable Redis-backed scan semaphore.
+
+**Scan History** — Set `SENTRYWATCH_REDIS_URL=sqlite:///data/scans.db` for persistent history across restarts.
+
+**Probe Budget** — Max 50,000 probes per request (targets × ports). Large scans split into multiple requests.
+
+**Simulation Mode** — Frontend: add `?simulate=true` to run offline. Exports disabled; banner shown.
+
 ## License
 
 MIT
