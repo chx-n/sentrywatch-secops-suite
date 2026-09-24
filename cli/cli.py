@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Annotated, Final
 
 import typer
+from pydantic import ValidationError
 from core import __version__
 from core.exceptions import SentryWatchError, TargetValidationError
 from core.scanner import run_scan
@@ -189,7 +190,7 @@ def scan(
                 max_retries=retries,
             )
         )
-    except TargetValidationError as exc:
+    except (TargetValidationError, ValidationError) as exc:
         err_console.print(f"[red]Target rejected by SSRF guard:[/] {exc}")
         raise typer.Exit(code=2) from exc
     except SentryWatchError as exc:
