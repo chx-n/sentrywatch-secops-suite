@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
-import { Search, Wrench, CheckCircle2, Shield, Lock, Ban, Check, Sliders } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Search, Wrench, CheckCircle2, Shield, Lock, Ban, Check, Sliders, RefreshCw, Radio } from 'lucide-react';
+import { apiService } from '../services/api';
 
 interface AppCard {
   id: string;
@@ -10,6 +11,8 @@ interface AppCard {
   ports: number[];
   connections: number;
   blocked: number;
+  pid?: string;
+  listening?: boolean;
 }
 
 // Desaturated icon colors — no neon
@@ -51,6 +54,9 @@ export const AllAppsView: React.FC<AllAppsViewProps> = ({ globalSearch = '' }) =
   const [selectedApp, setSelectedApp] = useState<AppCard | null>(null);
   const [manageRulesOpen, setManageRulesOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [appsList, setAppsList] = useState<AppCard[]>(ALL_APPS_LIST);
+  const [isLive, setIsLive] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
   // Global firewall policy switches
   const [blockInboundAll, setBlockInboundAll] = useState(true);
@@ -58,9 +64,29 @@ export const AllAppsView: React.FC<AllAppsViewProps> = ({ globalSearch = '' }) =
   const [autoIsolateUnknown, setAutoIsolateUnknown] = useState(false);
   const [dropRawSockets, setDropRawSockets] = useState(true);
 
+  const loadLiveApps = async () => {
+    setIsLoading(true);
+    try {
+      const live = await apiService.getNetworkApps();
+      if (live && live.length > 0) {
+        setAppsList(live);
+        setIsLive(true);
+        showToast(`Discovered ${live.length} live host network applications`);
+      }
+    } catch (err) {
+      console.warn('Failed loading live network apps:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadLiveApps();
+  }, []);
+
   const effectiveSearch = (search || globalSearch).toLowerCase();
-  const activeApps = ALL_APPS_LIST.filter(a => a.category === 'active' && a.name.toLowerCase().includes(effectiveSearch));
-  const allApps = ALL_APPS_LIST.filter(a => a.category === 'all' && a.name.toLowerCase().includes(effectiveSearch));
+  const activeApps = appsList.filter(a => a.name.toLowerCase().includes(effectiveSearch));
+  const allApps = appsList.filter(a => a.category === 'all' && a.name.toLowerCase().includes(effectiveSearch));
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -84,18 +110,33 @@ export const AllAppsView: React.FC<AllAppsViewProps> = ({ globalSearch = '' }) =
           <h1 className="text-xl font-semibold text-[#E8E6E3]">
             All Apps & Network Nodes
           </h1>
-          <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-[#141414] text-[#6B8F71] border border-[#6B8F71]/20">
-            {ALL_APPS_LIST.length} Total Rules
+          <span className={`text-[11px] font-mono px-2 py-0.5 rounded border flex items-center gap-1.5 ${
+            isLive ? 'bg-[#6B8F71]/15 text-[#7DA385] border-[#6B8F71]/30' : 'bg-[#141414] text-[#8A8A8A] border-[#1E1E1E]'
+          }`}>
+            {isLive ? <Radio size={11} className="text-[#6B8F71] animate-pulse" /> : null}
+            {isLive ? `${appsList.length} Live Host Sockets` : `${appsList.length} Network Nodes`}
           </span>
         </div>
 
-        <button 
-          onClick={() => setManageRulesOpen(true)}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md bg-[#141414] border border-[#1E1E1E] text-[#8A8A8A] hover:text-[#E8E6E3] hover:bg-[#1A1A1A] transition-colors cursor-pointer"
-        >
-          <Wrench size={13} />
-          <span>Manage App Rules</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <button 
+            onClick={loadLiveApps}
+            disabled={isLoading}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md bg-[#141414] border border-[#1E1E1E] text-[#8A8A8A] hover:text-[#E8E6E3] hover:bg-[#1A1A1A] transition-colors cursor-pointer disabled:opacity-50"
+            title="Scan host /proc/net sockets and active daemons"
+          >
+            <RefreshCw size={13} className={isLoading ? 'animate-spin text-[#6B8F71]' : ''} />
+            <span>{isLoading ? 'Scanning...' : 'Refresh Sockets'}</span>
+          </button>
+
+          <button 
+            onClick={() => setManageRulesOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md bg-[#141414] border border-[#1E1E1E] text-[#8A8A8A] hover:text-[#E8E6E3] hover:bg-[#1A1A1A] transition-colors cursor-pointer"
+          >
+            <Wrench size={13} />
+            <span>Manage App Rules</span>
+          </button>
+        </div>
       </div>
 
       {/* Search Input */}

@@ -10,6 +10,7 @@ import {
   HelpCircle,
   AlertTriangle,
   FileText,
+  Radio,
 } from 'lucide-react';
 import { ParsedEvent, ParserStats, Severity } from '../types';
 import { apiService } from '../services/api';
@@ -168,9 +169,42 @@ export const LogParser: React.FC<LogParserProps> = ({ onEventsUpdated }) => {
     }
   };
 
-  const handleIngest = () => {
+  const loadLiveSystemLogs = async () => {
+    setIsSimulating(false);
+    try {
+      const res = await apiService.getSystemLogs(50);
+      if (res && res.events && res.events.length > 0) {
+        setEvents(res.events);
+        recalc(res.events);
+        setSelected(res.events[0]);
+        onEventsUpdated?.(res.events);
+      }
+    } catch (e) {
+      console.warn('Failed loading system logs:', e);
+    }
+  };
+
+  const handleIngest = async () => {
     if (!input.trim()) return;
     const lines = input.split('\n').map(l => l.trim()).filter(Boolean);
+
+    try {
+      const res = await apiService.parseLogs(lines);
+      if (res && res.events && res.events.length > 0) {
+        setEvents(prev => {
+          const next = [...res.events, ...prev];
+          recalc(next);
+          onEventsUpdated?.(next);
+          return next;
+        });
+        setSelected(res.events[0]);
+        setInput('');
+        return;
+      }
+    } catch (e) {
+      console.warn('Backend parseLogs failed, falling back to client parser:', e);
+    }
+
     const parsed = lines.map(l => {
       const ev = apiService.parseLine(l);
       ev.is_simulated = false;
@@ -276,22 +310,31 @@ export const LogParser: React.FC<LogParserProps> = ({ onEventsUpdated }) => {
         {/* Action Controls */}
         <div className="flex items-center gap-2 flex-wrap">
           <button
+            onClick={loadLiveSystemLogs}
+            className="px-3 py-1.5 rounded text-xs font-semibold flex items-center gap-1.5 bg-[#6B8F71] text-[#0A0A0A] hover:bg-[#7DA385] transition-all cursor-pointer"
+            title="Read live /var/log/syslog or journalctl entries from host"
+          >
+            <Radio size={12} className="animate-pulse" />
+            <span>Load Host System Logs</span>
+          </button>
+
+          <button
             onClick={toggleSimulation}
             className={`px-3 py-1.5 rounded text-xs font-semibold flex items-center gap-1.5 transition-all ${
               isSimulating
                 ? 'bg-[#C4963A]/15 text-[#D4A64A] border border-[#C4963A]/30 hover:bg-[#C4963A]/25'
-                : 'bg-[#6B8F71] text-[#0A0A0A] hover:bg-[#7DA385]'
+                : 'bg-[#141414] text-[#8A8A8A] border border-[#1E1E1E] hover:text-[#E8E6E3] hover:bg-[#1A1A1A]'
             }`}
           >
             {isSimulating ? (
               <>
                 <Pause size={12} />
-                <span>Stop Simulation</span>
+                <span>Stop Demo Stream</span>
               </>
             ) : (
               <>
                 <Play size={12} />
-                <span>Start Simulation (Demo)</span>
+                <span>Synthetic Attack Demo</span>
               </>
             )}
           </button>

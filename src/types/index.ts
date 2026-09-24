@@ -20,6 +20,10 @@ export interface HostScanResult {
   error?: string | null;
 }
 
+export interface ScanReportMeta {
+  simulation?: boolean;
+}
+
 export interface ScanReport {
   id: string;
   targets: string[];
@@ -32,6 +36,7 @@ export interface ScanReport {
   hosts_failed: number;
   open_port_count: number;
   successful?: boolean;
+  meta?: ScanReportMeta;
 }
 
 export interface ScanRequest {
@@ -78,10 +83,11 @@ export interface ParserStats {
 }
 
 export interface TelemetryEvent {
-  type: 'progress' | 'host_start' | 'host_complete' | 'probe' | 'complete' | 'failed' | 'cancelled' | 'heartbeat';
+  type: 'progress' | 'host_start' | 'host_result' | 'host_complete' | 'probe' | 'status' | 'complete' | 'failed' | 'cancelled' | 'heartbeat';
   scan_id?: string;
   timestamp?: string;
   data?: Record<string, any>;
+  payload?: Record<string, any>;
 }
 
 export interface SystemHealth {

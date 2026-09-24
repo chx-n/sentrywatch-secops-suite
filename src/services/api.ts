@@ -50,6 +50,7 @@ class SentryWatchService {
     onTelemetry?: (event: TelemetryEvent) => void
   ): Promise<ScanReport> {
     const isLive = await this.checkBackendHealth();
+    const simulateMode = new URLSearchParams(window.location.search).get('simulate') === 'true';
 
     if (isLive) {
       try {
@@ -77,12 +78,19 @@ class SentryWatchService {
         // Poll for completion
         return await this.pollScanUntilComplete(scanId, onTelemetry);
       } catch (err) {
-        console.warn('Backend scan failed, falling back to simulated SecOps engine:', err);
+        if (simulateMode) {
+          console.warn('Backend scan failed, using simulation mode:', err);
+          return await this.simulateScan(request, onTelemetry);
+        }
+        throw err;
       }
     }
 
-    // High fidelity SecOps simulation
-    return await this.simulateScan(request, onTelemetry);
+    if (simulateMode) {
+      return await this.simulateScan(request, onTelemetry);
+    }
+
+    throw new Error('Backend unavailable. Add ?simulate=true to use simulation mode.');
   }
 
   private async pollScanUntilComplete(
@@ -125,6 +133,9 @@ class SentryWatchService {
       this.activeWs.onmessage = (msg) => {
         try {
           const parsed = JSON.parse(msg.data);
+          if (parsed.payload && !parsed.data) {
+            parsed.data = parsed.payload;
+          }
           callback(parsed);
         } catch {
           // ignore heartbeat parse errors
@@ -259,7 +270,8 @@ class SentryWatchService {
       hosts_scanned: hosts.length,
       hosts_failed: hosts.filter(h => h.error !== null).length,
       open_port_count: totalOpen,
-      successful: hosts.every(h => h.error === null)
+      successful: hosts.every(h => h.error === null),
+      meta: { simulation: true }
     };
 
     if (onTelemetry) {
@@ -437,6 +449,116 @@ class SentryWatchService {
       case 6: return 'info';
       case 7: return 'debug';
       default: return 'unknown';
+    }
+  }
+
+  // --- Live System Network & Application Discovery ---
+  public async getNetworkApps(): Promise<any[]> {
+    try {
+      const res = await fetch(`${API_BASE}/system/network-apps`, {
+        headers: { 'X-API-Key': this.apiKey },
+      });
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch (e) {
+      console.warn('Failed fetching live network apps from backend:', e);
+    }
+    return [];
+  }
+
+  public async getConnections(): Promise<any[]> {
+    try {
+      const res = await fetch(`${API_BASE}/system/connections`, {
+        headers: { 'X-API-Key': this.apiKey },
+      });
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch (e) {
+      console.warn('Failed fetching live connections from backend:', e);
+    }
+    return [];
+  }
+
+  // --- Live Log Ingestion & Parsing ---
+  public async parseLogs(lines: string[]): Promise<{ events: ParsedEvent[]; stats: any }> {
+    try {
+      const res = await fetch(`${API_BASE}/logs/parse`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Key': this.apiKey,
+        },
+        body: JSON.stringify({ lines }),
+      });
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch (e) {
+      console.warn('Backend parseLogs failed:', e);
+    }
+    return { events: [], stats: { lines_in: 0, events_out: 0, matched_threats: 0, recognition_rate: 0 } };
+  }
+
+  public async getSystemLogs(limit: number = 50): Promise<{ events: ParsedEvent[]; stats: any }> {
+    try {
+      const res = await fetch(`${API_BASE}/logs/system?limit=${limit}`, {
+        headers: { 'X-API-Key': this.apiKey },
+      });
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch (e) {
+      console.warn('Backend getSystemLogs failed:', e);
+    }
+    return { events: [], stats: { lines_in: 0, events_out: 0, matched_threats: 0, recognition_rate: 0 } };
+  }
+
+  // --- Real Security Alerts & Threat Actions ---
+  public async getAlerts(): Promise<any[]> {
+    try {
+      const res = await fetch(`${API_BASE}/alerts`, {
+        headers: { 'X-API-Key': this.apiKey },
+      });
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch (e) {
+      console.warn('Backend getAlerts failed:', e);
+    }
+    return [];
+  }
+
+  public async acknowledgeAlert(id?: string, all: boolean = false): Promise<boolean> {
+    try {
+      const res = await fetch(`${API_BASE}/alerts/acknowledge`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Key': this.apiKey,
+        },
+        body: JSON.stringify({ alert_id: id, all }),
+      });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  }
+
+  public async blockIp(ip: string): Promise<boolean> {
+    try {
+      const res = await fetch(`${API_BASE}/alerts/block-ip`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Key': this.apiKey,
+        },
+        body: JSON.stringify({ ip }),
+      });
+      return res.ok;
+    } catch {
+      return false;
     }
   }
 

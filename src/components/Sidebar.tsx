@@ -12,7 +12,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 
-export type TabType = 'overview' | 'alerts' | 'apps' | 'scanner' | 'logs' | 'settings' | 'help';
+export type TabType = 'overview' | 'alerts' | 'apps' | 'scanner' | 'logs' | 'radar' | 'reports' | 'settings' | 'help';
 
 interface SidebarProps {
   currentTab: TabType;
@@ -34,6 +34,8 @@ const PRIMARY_NAV: NavItem[] = [
   { id: 'apps',     icon: LayoutGrid, label: 'All Apps' },
   { id: 'scanner',  icon: Radio,      label: 'Network Scanner' },
   { id: 'logs',     icon: ScrollText, label: 'Log Analyzer' },
+  { id: 'radar',    icon: Activity,   label: 'Threat Radar' },
+  { id: 'reports',  icon: ShieldCheck, label: 'Reports Vault' },
 ];
 
 const BOTTOM_NAV: NavItem[] = [

@@ -11,6 +11,7 @@ import {
   Globe,
   Zap,
   FileCode,
+  AlertCircle,
 } from 'lucide-react';
 import { ScanRequest, ScanReport, PortProbe, TelemetryEvent } from '../types';
 import { apiService } from '../services/api';
@@ -112,10 +113,15 @@ export const ScanEngine: React.FC<ScanEngineProps> = ({
 
     try {
       const r = await apiService.submitScan(req, (ev: TelemetryEvent) => {
-        if (ev.type === 'probe' && ev.data)
-          setProgress(`Checking door ${ev.data.port} on ${ev.data.target} (${ev.data.state})`);
-        else if (ev.type === 'host_start' && ev.data)
-          setProgress(`Scanning server: ${ev.data.target}`);
+        const d = ev.data || ev.payload;
+        if (ev.type === 'probe' && d)
+          setProgress(`Checking door ${d.port} on ${d.target} (${d.state})`);
+        else if (ev.type === 'host_result' && d)
+          setProgress(`Host scanned: ${d.target} (${d.open_port_count ?? 0} open doors)`);
+        else if (ev.type === 'status' && d)
+          setProgress(`Scan status: ${d.status}`);
+        else if (ev.type === 'host_start' && d)
+          setProgress(`Scanning server: ${d.target}`);
       });
       setReport(r);
       onScanComplete(r);
@@ -184,16 +190,25 @@ Details: ${report.hosts.flatMap(h => h.probes.filter(p => p.state === 'open').ma
         <div className="flex items-center gap-2">
           {report && (
             <>
+              {report.meta?.simulation && (
+                <div className="p-2 mb-2 rounded bg-[#C4963A]/10 border border-[#C4963A]/20 flex items-center gap-2">
+                  <AlertCircle size={14} className="text-[#D4A64A]" />
+                  <span className="text-xs text-[#D4A64A] font-semibold">SIMULATION MODE</span>
+                  <span className="text-[10px] text-[#8A8A8A]">Results are simulated — not from live backend scan</span>
+                </div>
+              )}
               <button
                 onClick={copySummary}
-                className="px-3 py-1 text-xs rounded bg-[#1A1A1A] border border-[#222222] text-[#8A8A8A] hover:text-[#E8E6E3] flex items-center gap-1"
+                disabled={report.meta?.simulation}
+                className="px-3 py-1 text-xs rounded bg-[#1A1A1A] border border-[#222222] text-[#8A8A8A] hover:text-[#E8E6E3] flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {copied ? <Check size={13} className="text-[#6B8F71]" /> : <Copy size={13} />}
                 <span>{copied ? 'Copied' : 'Copy Summary'}</span>
               </button>
               <button
                 onClick={() => exportReport('json')}
-                className="px-2.5 py-1 text-xs rounded bg-[#1A1A1A] border border-[#222222] text-[#8A8A8A] hover:text-[#E8E6E3] flex items-center gap-1"
+                disabled={report.meta?.simulation}
+                className="px-2.5 py-1 text-xs rounded bg-[#1A1A1A] border border-[#222222] text-[#8A8A8A] hover:text-[#E8E6E3] flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <FileCode size={13} />
                 <span>JSON</span>

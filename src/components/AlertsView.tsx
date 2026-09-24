@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Bell, 
   AlertTriangle, 
@@ -11,8 +11,10 @@ import {
   ExternalLink,
   Shield,
   Radio,
-  Check
+  Check,
+  RefreshCw
 } from 'lucide-react';
+import { apiService } from '../services/api';
 
 export interface SecurityAlert {
   id: string;
@@ -122,15 +124,41 @@ export const AlertsView: React.FC<AlertsViewProps> = ({
   const [severityFilter, setSeverityFilter] = useState<'all' | 'critical' | 'warning' | 'info'>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'blocked'>('all');
   const [selectedAlert, setSelectedAlert] = useState<SecurityAlert | null>(null);
+  const [isLive, setIsLive] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+
+  const loadAlerts = async () => {
+    setIsLoading(true);
+    try {
+      const live = await apiService.getAlerts();
+      if (live && live.length > 0) {
+        setAlerts(live);
+        setIsLive(true);
+      }
+    } catch (e) {
+      console.warn('Failed fetching live alerts:', e);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadAlerts();
+  }, []);
 
   const activeCount = alerts.filter(a => a.status === 'active').length;
   const criticalCount = alerts.filter(a => a.severity === 'critical').length;
 
-  const handleAcknowledgeAll = () => {
+  const handleAcknowledgeAll = async () => {
+    await apiService.acknowledgeAlert(undefined, true);
     setAlerts(alerts.map(a => ({ ...a, status: 'acknowledged' })));
   };
 
-  const handleBlockIp = (id: string) => {
+  const handleBlockIp = async (id: string) => {
+    const alert = alerts.find(a => a.id === id);
+    if (alert?.sourceIp && alert.sourceIp !== '127.0.0.1') {
+      await apiService.blockIp(alert.sourceIp);
+    }
     setAlerts(alerts.map(a => a.id === id ? { ...a, status: 'blocked' } : a));
   };
 
@@ -182,6 +210,16 @@ export const AlertsView: React.FC<AlertsViewProps> = ({
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            onClick={loadAlerts}
+            disabled={isLoading}
+            className="px-3 py-1.5 text-xs rounded bg-[#141414] border border-[#1E1E1E] text-[#8A8A8A] hover:text-[#E8E6E3] hover:bg-[#1A1A1A] flex items-center gap-1.5 transition-colors disabled:opacity-50"
+            title="Poll live security alerts from host scanner and daemons"
+          >
+            <RefreshCw size={13} className={isLoading ? 'animate-spin text-[#6B8F71]' : ''} />
+            <span>{isLoading ? 'Polling...' : 'Refresh Alerts'}</span>
+          </button>
+
           {activeCount > 0 && (
             <button
               onClick={handleAcknowledgeAll}
