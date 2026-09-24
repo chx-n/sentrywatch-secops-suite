@@ -12,6 +12,7 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "SentryWatch SecOps Suite",
         "width": 1360,
         "height": 860,

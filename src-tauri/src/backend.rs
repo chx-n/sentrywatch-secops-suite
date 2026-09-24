@@ -1,6 +1,5 @@
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
-use tauri::{AppHandle, Manager};
 
 pub struct BackendState {
     pub process: Mutex<Option<Child>>,
@@ -19,14 +18,42 @@ impl BackendState {
             return;
         }
 
-        // Spawn Python FastAPI server in background
-        #[cfg(target_os = "windows")]
-        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        // Find project root containing pyproject.toml
+        let mut project_root = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+        for _ in 0..4 {
+            if project_root.join("pyproject.toml").exists() {
+                break;
+            }
+            if let Some(parent) = project_root.parent() {
+                project_root = parent.to_path_buf();
+            } else {
+                break;
+            }
+        }
 
-        let mut cmd = Command::new("python");
-        cmd.args(["-m", "uvicorn", "api.main:app", "--host", "127.0.0.1", "--port", "8000"])
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
+        // Prefer .venv python in project_root, then python3.13, then fallback
+        let venv_python = if cfg!(target_os = "windows") {
+            project_root.join(".venv").join("Scripts").join("python.exe")
+        } else {
+            project_root.join(".venv").join("bin").join("python")
+        };
+
+        let python_bin = if venv_python.exists() {
+            venv_python.to_string_lossy().to_string()
+        } else if std::path::Path::new("/usr/bin/python3.13").exists() {
+            "/usr/bin/python3.13".to_string()
+        } else if cfg!(target_os = "windows") {
+            "python".to_string()
+        } else {
+            "python3".to_string()
+        };
+
+        println!("[SentryWatch Desktop] Starting backend from {:?} with python {:?}", project_root, python_bin);
+
+        let mut cmd = Command::new(&python_bin);
+        cmd.current_dir(&project_root);
+        cmd.args(["-m", "uvicorn", "api.main:app", "--host", "127.0.0.1", "--port", "8000"]);
+        cmd.stdout(Stdio::inherit()).stderr(Stdio::inherit());
 
         #[cfg(target_os = "windows")]
         {
@@ -40,7 +67,7 @@ impl BackendState {
                 *proc_guard = Some(child);
             }
             Err(e) => {
-                eprintln!("[SentryWatch Desktop] Failed to spawn Python backend: {}. Using simulated/existing server.", e);
+                eprintln!("[SentryWatch Desktop] Failed to spawn Python backend: {}. Using existing/simulated server.", e);
             }
         }
     }
@@ -57,8 +84,6 @@ impl BackendState {
 }
 
 #[tauri::command]
-pub fn check_backend_running(app: AppHandle) -> bool {
-    let state = app.state::<BackendState>();
-    let is_running = state.process.lock().unwrap().is_some();
-    is_running
+pub fn check_backend_running(state: tauri::State<std::sync::Arc<BackendState>>) -> bool {
+    state.process.lock().unwrap().is_some()
 }

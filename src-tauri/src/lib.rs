@@ -8,11 +8,12 @@ pub fn run() {
     let backend_state = Arc::new(BackendState::new());
     let backend_clone = Arc::clone(&backend_state);
     let backend_exit = Arc::clone(&backend_state);
+    let backend_manage = Arc::clone(&backend_state);
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_process::init())
-        .manage(BackendState::new())
+        .manage(backend_manage)
         .invoke_handler(tauri::generate_handler![check_backend_running])
         .setup(move |_app| {
             backend_clone.start();
