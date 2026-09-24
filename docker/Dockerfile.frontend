@@ -12,7 +12,7 @@ RUN pnpm install || npm install
 
 COPY index.html tsconfig.json tsconfig.node.json vite.config.ts tailwind.config.js postcss.config.js ./
 COPY src/ ./src/
-RUN pnpm build || npm run build
+RUN pnpm run web:build || npm run web:build
 
 FROM nginx:1.27-alpine AS web-runtime
 COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
