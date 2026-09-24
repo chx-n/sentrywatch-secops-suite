@@ -33,6 +33,23 @@ MAX_LINE_LENGTH: Final[int] = 32_768
 UnmatchedPolicy = Literal["skip", "event"]
 
 
+_RE_DANGEROUS_PATTERNS: Final[tuple[re.Pattern[str], ...]] = (
+    re.compile(r"\(\?\:.*[\+\*]\{.*[\+\*]\}"),  # nested quantifiers (?:.+)+
+    re.compile(r"\([\^\)]*[\+\*]\)[\+\*]"),      # (a+)+
+    re.compile(r"\(\?\:.*\|\?\:.*\)[\+\*]"),     # (?:a|b)+
+    re.compile(r"\(\?[=!].*[\+\*]\)[\+\*]"),     # (?=...)+
+)
+
+
+def _validate_regex_safety(expression: str) -> None:
+    """Check regex for catastrophic backtracking patterns."""
+    for pattern in _RE_DANGEROUS_PATTERNS:
+        if pattern.search(expression):
+            raise ParserError(
+                f"regex contains potentially catastrophic backtracking pattern: {expression!r}"
+            )
+
+
 class Severity(enum.StrEnum):
     """Unified severity scale across supported log formats."""
 
@@ -82,6 +99,7 @@ class LogRule:
         multi_match: bool = False,
         flags: int = re.DOTALL,
     ) -> LogRule:
+        _validate_regex_safety(expression)
         try:
             return cls(
                 name=name,
@@ -237,6 +255,7 @@ class StreamingParser:
             severity=severity,
             timestamp=timestamp,
             fields=fields,
+            matched=True,
         )
 
     def _event_from_multi(
@@ -259,6 +278,7 @@ class StreamingParser:
             severity=severity,
             timestamp=None,
             fields=fields,
+            matched=True,
         )
 
     def snapshot(self) -> dict[str, int | float]:

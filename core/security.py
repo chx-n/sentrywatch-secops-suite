@@ -112,18 +112,23 @@ def _clean(value: str) -> str:
 
 def assert_address_allowed(address: IPAddress, *, allow_private_networks: bool) -> None:
     """Reject protected ranges; link-local/metadata ranges are never permitted."""
-    for network in ALWAYS_BLOCKED_NETWORKS:
-        if address in network:
-            raise DisallowedTargetError(
-                f"{address} falls inside always-protected network {network}"
-            )
+    effective_ips = [address]
+    if isinstance(address, IPv6Address) and address.ipv4_mapped:
+        effective_ips.append(address.ipv4_mapped)
+    for ip in effective_ips:
+        for network in ALWAYS_BLOCKED_NETWORKS:
+            if ip.version == network.version and ip in network:
+                raise DisallowedTargetError(
+                    f"{address} falls inside always-protected network {network}"
+                )
     if allow_private_networks:
         return
-    for network in RESERVED_NETWORKS:
-        if address in network:
-            raise DisallowedTargetError(
-                f"{address} falls inside protected network {network} (SSRF guard)"
-            )
+    for ip in effective_ips:
+        for network in RESERVED_NETWORKS:
+            if ip.version == network.version and ip in network:
+                raise DisallowedTargetError(
+                    f"{address} falls inside protected network {network} (SSRF guard)"
+                )
 
 
 def parse_literal_address(value: str) -> IPAddress | None:

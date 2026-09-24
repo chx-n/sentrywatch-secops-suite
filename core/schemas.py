@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Annotated, Final, Self
+from typing import Annotated, Any, Final, Self
 from uuid import UUID, uuid4
 
 from pydantic import (
@@ -36,6 +36,7 @@ DEFAULT_SCAN_PORTS: Final[str] = (
     "21,22,23,25,53,80,110,143,443,445,993,995,3306,3389,5432,6379,8080,8443,9092"
 )
 MAX_PORT_VALUE: Final[int] = 65_535
+MAX_PROBE_BUDGET: Final[int] = 50_000
 
 
 def utc_now() -> datetime:
@@ -143,6 +144,7 @@ class ScanRequest(DomainModel):
     grab_banners: bool = True
     max_retries: int = Field(default=1, ge=0, le=3)
     allow_private_networks: bool = False
+    validate_at_connect: bool = True
 
     @field_validator("targets", mode="before")
     @classmethod
@@ -163,6 +165,15 @@ class ScanRequest(DomainModel):
         deduped = tuple(dict.fromkeys(self.targets))
         if len(deduped) != len(self.targets):
             return self.model_copy(update={"targets": deduped})
+        return self
+
+    @model_validator(mode="after")
+    def _probe_budget(self) -> Self:
+        probe_count = len(self.targets) * len(self.ports)
+        if probe_count > MAX_PROBE_BUDGET:
+            raise ValueError(
+                f"probe budget exceeded: {len(self.targets)} targets × {len(self.ports)} ports = {probe_count} > {MAX_PROBE_BUDGET}"
+            )
         return self
 
 
@@ -188,6 +199,21 @@ class HostScanResult(DomainModel):
     open_ports: tuple[PortNumber, ...] = Field(default_factory=tuple)
     open_port_count: int = Field(default=0, ge=0)
     error: str | None = Field(default=None, max_length=512)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _compute_open_ports(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            probes = data.get("probes", ())
+            if not data.get("open_ports") and probes:
+                open_ports = tuple(
+                    p.port if hasattr(p, "port") else p["port"]
+                    for p in probes
+                    if (p.state if hasattr(p, "state") else p.get("state")) in (PortState.OPEN, "open")
+                )
+                data["open_ports"] = open_ports
+                data["open_port_count"] = len(open_ports)
+        return data
 
 
 class ScanReport(DomainModel):

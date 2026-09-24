@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import ipaddress
 import logging
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass
@@ -31,7 +32,7 @@ from time import perf_counter
 from typing import ClassVar, Final, Self
 from uuid import uuid4
 
-from core.exceptions import SentryWatchError
+from core.exceptions import DisallowedTargetError, SentryWatchError
 from core.schemas import (
     DEFAULT_SCAN_PORTS,
     HostScanResult,
@@ -43,7 +44,7 @@ from core.schemas import (
     parse_port_spec,
     utc_now,
 )
-from core.security import IPAddress, TargetKind, ValidatedTarget, prepare_targets
+from core.security import IPAddress, TargetKind, ValidatedTarget, prepare_targets, assert_address_allowed
 
 __all__: Final[tuple[str, ...]] = (
     "AsyncServiceScanner",
@@ -267,12 +268,17 @@ class AsyncServiceScanner:
                         connect_coro, timeout=self._request.connect_timeout_s
                     )
                     latency_ms = round((perf_counter() - clock) * 1000.0, 3)
+                    banner: str | None = None
                     try:
-                        banner = (
-                            await self._banner_reader.read(reader)
-                            if self._banner_reader is not None
-                            else None
-                        )
+                        if self._request.validate_at_connect:
+                            peername = writer.get_extra_info("peername")
+                            if peername:
+                                peer_ip = ipaddress.ip_address(peername[0])
+                                assert_address_allowed(
+                                    peer_ip, allow_private_networks=self._request.allow_private_networks
+                                )
+                        if self._banner_reader is not None:
+                            banner = await self._banner_reader.read(reader)
                     finally:
                         writer.close()
                         with contextlib.suppress(OSError):
@@ -280,6 +286,8 @@ class AsyncServiceScanner:
                     return ProbeOutcome(port, PortState.OPEN, latency_ms, banner)
             except asyncio.CancelledError:
                 raise
+            except DisallowedTargetError as exc:
+                return ProbeOutcome(port, PortState.FILTERED, None, None, f"SSRF blocked: {exc}")
             except TimeoutError:
                 detail = f"connect timed out after {self._request.connect_timeout_s:g}s"
             except ConnectionRefusedError:
@@ -303,6 +311,7 @@ async def run_scan(
     grab_banners: bool = True,
     allow_private_networks: bool = False,
     max_retries: int = 1,
+    validate_at_connect: bool = True,
 ) -> ScanReport:
     """One-shot convenience wrapper building a :class:`ScanRequest` internally."""
     request = ScanRequest(
@@ -314,6 +323,7 @@ async def run_scan(
         grab_banners=grab_banners,
         allow_private_networks=allow_private_networks,
         max_retries=max_retries,
+        validate_at_connect=validate_at_connect,
     )
     async with AsyncServiceScanner(request) as scanner:
         return await scanner.scan()

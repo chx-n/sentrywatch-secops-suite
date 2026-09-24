@@ -33,14 +33,12 @@ class TestScannerLogic:
         probe1 = PortProbe(
             port=80,
             state=PortState.OPEN,
-            service="http",
             latency_ms=12.5,
             banner="Apache/2.4.52",
         )
         probe2 = PortProbe(
             port=443,
             state=PortState.CLOSED,
-            service="https",
             latency_ms=5.0,
         )
         host = HostScanResult(
