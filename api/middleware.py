@@ -18,29 +18,29 @@ EXEMPT_PATHS: frozenset[str] = frozenset(
 )
 
 
-def is_authorized(provided: str | None, keys: frozenset[str]) -> bool:
-    """Constant-time comparison of *provided* against every configured key."""
-    if not keys or not provided:
+def is_authorized(provided: str | None, settings: Settings) -> bool:
+    """Constant-time comparison of *provided* against bcrypt-hashed keys."""
+    if not provided:
         return False
-    return any(hmac.compare_digest(provided.encode(), key.encode()) for key in keys)
+    return settings.verify_key(provided)
 
 
 class APIKeyMiddleware(BaseHTTPMiddleware):
     """Reject requests missing a valid ``X-API-Key`` header.
 
     WebSockets bypass HTTP middleware in Starlette; telemetry sockets are
-    authenticated separately via a ``token`` query parameter.
+    authenticated separately via Authorization header.
     """
 
-    def __init__(self, app: ASGIApp, keys: frozenset[str]) -> None:
+    def __init__(self, app: ASGIApp, settings: Settings) -> None:
         super().__init__(app)
-        self._keys = keys
+        self._settings = settings
 
     async def dispatch(
         self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
     ) -> Response:
         if request.url.path in EXEMPT_PATHS or is_authorized(
-            request.headers.get(API_KEY_HEADER), self._keys
+            request.headers.get(API_KEY_HEADER), self._settings
         ):
             return await call_next(request)
         return JSONResponse(status_code=401, content={"detail": "missing or invalid API key"})
@@ -50,7 +50,7 @@ def install_middleware(app: FastAPI, settings: Settings) -> None:
     """Register CORS (outermost) and API-key auth on *app*."""
     from fastapi.middleware.cors import CORSMiddleware
 
-    app.add_middleware(APIKeyMiddleware, keys=settings.api_keys)
+    app.add_middleware(APIKeyMiddleware, settings=settings)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=list(settings.allowed_origins),

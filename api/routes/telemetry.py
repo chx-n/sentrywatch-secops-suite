@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import time
+from collections import defaultdict
 from uuid import UUID
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 from api.config import get_settings
 from api.middleware import is_authorized
@@ -15,22 +19,57 @@ router = APIRouter(tags=["telemetry"])
 
 _CLOSE_UNAUTHORIZED = 4401
 _CLOSE_NOT_FOUND = 4404
+_CLOSE_RATE_LIMITED = 4429
+
+_WS_RATE_LIMITER: dict[str, list[float]] = defaultdict(list)
+_WS_RATE_LIMIT_WINDOW = 60.0  # 1 minute
+_WS_RATE_LIMIT_MAX = 30  # 30 connections per minute per IP
+
+
+def _check_ws_rate_limit(websocket: WebSocket) -> bool:
+    client = websocket.client
+    if not client:
+        return True
+    key = f"ws:ip:{client.host}"
+    now = time.time()
+    _WS_RATE_LIMITER[key] = [t for t in _WS_RATE_LIMITER[key] if now - t < _WS_RATE_LIMIT_WINDOW]
+    if len(_WS_RATE_LIMITER[key]) >= _WS_RATE_LIMIT_MAX:
+        return False
+    _WS_RATE_LIMITER[key].append(now)
+    return True
 
 
 async def _recv_loop(socket: WebSocket) -> str | None:
     return await socket.receive_text()
 
 
+def _extract_bearer_token(websocket: WebSocket) -> str | None:
+    auth = websocket.headers.get("Authorization") or websocket.headers.get("authorization")
+    if auth and auth.lower().startswith("bearer "):
+        return auth[7:].strip()
+    return None
+
+
 @router.websocket("/api/v1/ws/telemetry/{scan_id}")
 async def telemetry_socket(
     websocket: WebSocket,
     scan_id: UUID,
-    token: str = "",
 ) -> None:
     settings = get_settings()
-    if not is_authorized(token or websocket.query_params.get("token"), settings.api_keys):
-        await websocket.close(code=_CLOSE_UNAUTHORIZED)
+    
+    if not _check_ws_rate_limit(websocket):
+        await websocket.close(code=_CLOSE_RATE_LIMITED, reason="WebSocket rate limit exceeded")
         return
+    
+    token = _extract_bearer_token(websocket) or websocket.query_params.get("token")
+    if not token:
+        await websocket.close(code=_CLOSE_UNAUTHORIZED, reason="Missing API key in Authorization header or ?token= query parameter")
+        return
+    
+    if not is_authorized(token, settings):
+        await websocket.close(code=_CLOSE_UNAUTHORIZED, reason="Invalid API key")
+        return
+
     service: ScanService | None = getattr(websocket.app.state, "scan_service", None)
     if service is None:
         await websocket.close(code=_CLOSE_NOT_FOUND)

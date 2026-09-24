@@ -73,7 +73,8 @@ async def submit_scan(
 
 @router.get("")
 async def list_scans(service: ScanServiceDep) -> list[dict[str, Any]]:
-    return [_job_snapshot(job, include_report=False) for job in service.list_jobs()]
+    jobs = await service.list_jobs()
+    return [_job_snapshot(job, include_report=False) for job in jobs]
 
 
 @router.get("/{scan_id}")

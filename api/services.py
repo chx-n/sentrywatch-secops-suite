@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections import OrderedDict
-from enum import StrEnum
 from typing import Any, Final, Literal
 from uuid import UUID, uuid4
 
@@ -20,17 +18,12 @@ from core.schemas import (
 )
 from pydantic import AwareDatetime, Field
 
+from api.storage import ScanStorage, InMemoryScanStorage
+from api.types import JobStatus, ScanJob
+
 _LOGGER: Final[logging.Logger] = logging.getLogger(__name__)
 
 _QUEUE_MAX_SIZE: Final[int] = 512
-
-
-class JobStatus(StrEnum):
-    PENDING = "pending"
-    RUNNING = "running"
-    COMPLETED = "completed"
-    FAILED = "failed"
-    CANCELLED = "cancelled"
 
 
 class ScanCapacityError(SentryWatchError):
@@ -50,55 +43,42 @@ class TelemetryEvent(DomainModel):
     payload: dict[str, Any] = Field(default_factory=dict)
 
 
-class ScanJob:
-    """Mutable server-side state for one submitted scan."""
-
-    __slots__ = (
-        "_subscribers",
-        "created_at",
-        "error",
-        "hosts",
-        "id",
-        "report",
-        "request",
-        "status",
-        "task",
-    )
-
-    def __init__(self, request: ScanRequest) -> None:
-        self.id: UUID = uuid4()
-        self.request: ScanRequest = request
-        self.status: JobStatus = JobStatus.PENDING
-        self.created_at = utc_now()
-        self.report: ScanReport | None = None
-        self.error: str | None = None
-        self.hosts: list[HostScanResult] = []
-        self.task: asyncio.Task[None] | None = None
-        self._subscribers: OrderedDict[UUID, asyncio.Queue[TelemetryEvent]] = OrderedDict()
-
-    @property
-    def active(self) -> bool:
-        return self.status in (JobStatus.PENDING, JobStatus.RUNNING)
-
-
 class ScanService:
     """Owns all scan jobs for this API process."""
 
-    def __init__(self, max_concurrent_scans: int, history_size: int) -> None:
+    def __init__(
+        self,
+        max_concurrent_scans: int,
+        history_size: int,
+        storage: ScanStorage | None = None,
+    ) -> None:
         self._max_concurrent = max_concurrent_scans
         self._history_size = history_size
-        self._jobs: OrderedDict[UUID, ScanJob] = OrderedDict()
+        self._storage = storage or InMemoryScanStorage()
+        self._jobs: dict[UUID, ScanJob] = {}
         self._lock = asyncio.Lock()
 
-    def get(self, scan_id: UUID) -> ScanJob | None:
-        return self._jobs.get(scan_id)
+    async def initialize(self) -> None:
+        await self._storage.init()
+        jobs = await self._storage.list_jobs()
+        for job in jobs:
+            self._jobs[job.id] = job
 
-    def list_jobs(self) -> list[ScanJob]:
+    def get(self, scan_id: UUID) -> ScanJob | None:
+        job = self._jobs.get(scan_id)
+        if job is None:
+            return None
+        return job
+
+    async def list_jobs(self) -> list[ScanJob]:
+        jobs = await self._storage.list_jobs()
+        for job in jobs:
+            self._jobs[job.id] = job
         return list(reversed(self._jobs.values()))
 
     async def submit(self, request: ScanRequest) -> ScanJob:
         async with self._lock:
-            self._evict_finished_locked()
+            await self._evict_finished_locked()
             active = sum(1 for job in self._jobs.values() if job.active)
             if active >= self._max_concurrent:
                 raise ScanCapacityError(
@@ -106,6 +86,7 @@ class ScanService:
                 )
             job = ScanJob(request)
             self._jobs[job.id] = job
+            await self._storage.save(job)
             job.task = asyncio.create_task(self._run(job), name=f"scan-{job.id}")
             return job
 
@@ -138,6 +119,7 @@ class ScanService:
             task.cancel()
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
+        await self._storage.close()
         _LOGGER.info("scan service shut down; %d jobs discarded", len(tasks))
 
     def replay(self, job: ScanJob) -> list[TelemetryEvent]:
@@ -160,6 +142,7 @@ class ScanService:
 
     async def _run(self, job: ScanJob) -> None:
         job.status = JobStatus.RUNNING
+        await self._storage.save(job)
         await self._broadcast(
             job,
             TelemetryEvent(type="status", scan_id=job.id, payload={"status": "running"}),
@@ -175,11 +158,13 @@ class ScanService:
                 )
         except asyncio.CancelledError:
             job.status = JobStatus.CANCELLED
+            await self._storage.save(job)
             await self._broadcast(job, TelemetryEvent(type="cancelled", scan_id=job.id))
             raise
         except SentryWatchError as exc:
             job.status = JobStatus.FAILED
             job.error = str(exc)
+            await self._storage.save(job)
             await self._broadcast(
                 job,
                 TelemetryEvent(type="failed", scan_id=job.id, payload={"error": str(exc)}),
@@ -194,6 +179,7 @@ class ScanService:
             completed_at=completed_at,
         )
         job.status = JobStatus.COMPLETED
+        await self._storage.save(job)
         await self._broadcast(job, _complete_event(job))
 
     async def _broadcast(self, job: ScanJob, event: TelemetryEvent) -> None:
@@ -203,11 +189,12 @@ class ScanService:
             except asyncio.QueueFull:
                 _LOGGER.warning("telemetry queue overflow on scan %s; dropping event", job.id)
 
-    def _evict_finished_locked(self) -> None:
-        finished = [jid for jid, job in self._jobs.items() if not job.active]
-        while len(finished) > self._history_size:
-            oldest = finished.pop(0)
-            del self._jobs[oldest]
+    async def _evict_finished_locked(self) -> None:
+        await self._storage.delete_old(self._history_size)
+        jobs = await self._storage.list_jobs()
+        self._jobs.clear()
+        for job in jobs:
+            self._jobs[job.id] = job
 
 
 def _host_payload(host: HostScanResult) -> dict[str, Any]:
